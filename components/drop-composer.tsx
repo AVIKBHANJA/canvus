@@ -41,6 +41,32 @@ const ALLOWED_MIMES = new Set<string>([
 
 const TAG_RE = /^[\w\- ]{1,32}$/;
 
+/** Normalize browser/OS MIME quirks + fall back to extension mapping. */
+function normalizeMime(file: File): string {
+  const raw = (file.type || "").toLowerCase();
+  // Some browsers/OSes report "image/jpg" — canonicalize to jpeg.
+  if (raw === "image/jpg") return "image/jpeg";
+  if (raw && raw !== "application/octet-stream") return raw;
+
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  const map: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    avif: "image/avif",
+    heic: "image/heic",
+    pdf: "application/pdf",
+    txt: "text/plain",
+    md: "text/markdown",
+    csv: "text/csv",
+    zip: "application/zip",
+    json: "application/json",
+  };
+  return map[ext] ?? "";
+}
+
 /** Returns true when the current event target shouldn't trigger global shortcuts. */
 function isInputLike(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -52,12 +78,22 @@ function isInputLike(target: EventTarget | null): boolean {
   return false;
 }
 
+export type Stage = {
+  /** Monotonic counter — bump to re-trigger opening even with identical payload. */
+  seq: number;
+  file?: File;
+  text?: string;
+  url?: string;
+};
+
 export function DropComposer({
   onCreated,
   prefill,
+  stage,
 }: {
   onCreated: (d: Drop) => void;
   prefill?: { text?: string; url?: string; file?: File };
+  stage?: Stage;
 }) {
   const [open, setOpen] = React.useState(false);
   const [tab, setTab] = React.useState<Tab>("text");
@@ -100,26 +136,39 @@ export function DropComposer({
     }
   }, [prefill]);
 
-  // Global paste: cmd/ctrl+v anywhere (except inside inputs) opens composer with pasted content
+  // Global paste: cmd/ctrl+v anywhere opens composer with pasted content.
+  // Also: paste of an image while composer is open + image/file tab is active
+  // picks up the pasted image.
   React.useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      if (isInputLike(e.target)) return;
-      if (open) return;
       const dt = e.clipboardData;
       if (!dt) return;
+
       const items = Array.from(dt.items);
-      const imgItem = items.find((i) => i.type.startsWith("image/"));
+      const imgItem = items.find((i) => i.kind === "file" && i.type.startsWith("image/"));
+
+      // Inside a real text input: let the browser handle text paste, but
+      // still intercept image paste (text inputs can't consume images anyway).
+      if (isInputLike(e.target) && !imgItem) return;
+
       if (imgItem) {
         const f = imgItem.getAsFile();
         if (f) {
+          e.preventDefault();
           setFile(f);
           setTab("image");
           setOpen(true);
+          toast("Image pasted — click Drop it to save");
           return;
         }
       }
+
+      // Don't hijack pastes while the composer is open (user might be typing).
+      if (open) return;
+
       const pasted = dt.getData("text/plain");
-      if (!pasted) return;
+      if (!pasted || !pasted.trim()) return;
+      e.preventDefault();
       if (isUrl(pasted.trim())) {
         setUrl(pasted.trim());
         setTab("link");
@@ -128,9 +177,15 @@ export function DropComposer({
         setTab("text");
       }
       setOpen(true);
+      toast(isUrl(pasted.trim()) ? "Link pasted" : "Text pasted");
     };
+    // Listen on both — some browsers fire on document only when nothing is focused.
+    document.addEventListener("paste", onPaste);
     window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
+    return () => {
+      document.removeEventListener("paste", onPaste);
+      window.removeEventListener("paste", onPaste);
+    };
   }, [open]);
 
   // Global keyboard: "n" opens composer. Escape is handled by the focus trap.
@@ -156,34 +211,85 @@ export function DropComposer({
     }
   }, [open, tab]);
 
-  // Drag-drop anywhere (only while composer is open — safer)
+  // Global drag-drop: works whether the composer is open or closed.
+  // Dropping a file anywhere on the page opens the composer with that file.
+  // We preventDefault on every dragover so the browser doesn't navigate-to-file
+  // when the drop lands outside an explicit drop-zone child.
   React.useEffect(() => {
-    if (!open) return;
-    const onDragOver = (e: DragEvent) => {
+    let depth = 0;
+    const hasFiles = (e: DragEvent) => {
+      const t = e.dataTransfer?.types;
+      if (!t) return false;
+      // Cross-browser: "Files" on Chromium/Firefox, "application/x-moz-file" on FF, sometimes empty on dragenter in Safari
+      for (let i = 0; i < t.length; i++) {
+        const v = (t as unknown as { [i: number]: string })[i];
+        if (v === "Files" || v === "application/x-moz-file") return true;
+      }
+      return false;
+    };
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
       e.preventDefault();
+      depth += 1;
+      setDragging(true);
+    };
+    const onDragOver = (e: DragEvent) => {
+      // Always prevent default so the page becomes a valid drop target; browsers
+      // otherwise open the file and navigate away.
+      if (e.dataTransfer?.types?.length) e.preventDefault();
+      if (!hasFiles(e)) return;
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
       setDragging(true);
     };
     const onDragLeave = (e: DragEvent) => {
-      if (e.relatedTarget == null) setDragging(false);
+      depth = Math.max(0, depth - 1);
+      if (depth === 0 || e.relatedTarget == null) setDragging(false);
     };
     const onDrop = (e: DragEvent) => {
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
       e.preventDefault();
+      depth = 0;
       setDragging(false);
-      const f = e.dataTransfer?.files?.[0];
-      if (f) {
-        setFile(f);
-        setTab(f.type.startsWith("image/") ? "image" : "file");
-      }
+      const f = files[0];
+      setFile(f);
+      setTab(f.type.startsWith("image/") ? "image" : "file");
+      setOpen(true);
     };
+    // Listen to both window and document — some browser configurations only
+    // deliver drag events to one or the other.
+    window.addEventListener("dragenter", onDragEnter);
     window.addEventListener("dragover", onDragOver);
     window.addEventListener("dragleave", onDragLeave);
     window.addEventListener("drop", onDrop);
     return () => {
+      window.removeEventListener("dragenter", onDragEnter);
       window.removeEventListener("dragover", onDragOver);
       window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
     };
-  }, [open]);
+  }, []);
+
+  // Parent-driven staging: when `stage.seq` bumps, open the composer with the
+  // provided payload. This is the reliable path for the empty-state drop zone
+  // and the "Pick a file" button (no custom-event race).
+  const lastSeqRef = React.useRef<number>(0);
+  React.useEffect(() => {
+    if (!stage) return;
+    if (stage.seq === lastSeqRef.current) return;
+    lastSeqRef.current = stage.seq;
+    if (stage.file) {
+      setFile(stage.file);
+      setTab(stage.file.type.startsWith("image/") ? "image" : "file");
+    } else if (stage.url) {
+      setUrl(stage.url);
+      setTab("link");
+    } else if (stage.text) {
+      setText(stage.text);
+      setTab("text");
+    }
+    setOpen(true);
+  }, [stage]);
 
   function reset() {
     setText("");
@@ -210,7 +316,10 @@ export function DropComposer({
 
       if (tab === "text" || tab === "link") {
         // Server route writes + fetches OG.
-        if (tab === "text" && !text.trim()) return;
+        if (tab === "text" && !text.trim()) {
+          toast("Type something first");
+          return;
+        }
         if (tab === "link" && (!url.trim() || !isUrl(url.trim()))) {
           toast("Enter a valid URL");
           return;
@@ -245,9 +354,13 @@ export function DropComposer({
           toast("File exceeds 50 MB");
           return;
         }
-        const mime = (file.type || "").toLowerCase();
-        if (!ALLOWED_MIMES.has(mime)) {
-          toast("That file type isn't allowed");
+        const mime = normalizeMime(file);
+        if (!mime || !ALLOWED_MIMES.has(mime)) {
+          toast(
+            `That file type isn't allowed (${file.type || "unknown"} · .${
+              file.name.split(".").pop() || "?"
+            })`,
+          );
           return;
         }
 
@@ -328,6 +441,18 @@ export function DropComposer({
 
   return (
     <>
+      {/* Global drag overlay — shown whenever files are being dragged over the window */}
+      {dragging && !open && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--color-accent)_10%,transparent)] backdrop-blur-[2px]"
+        >
+          <div className="mono rounded-2xl border-2 border-dashed border-[var(--color-accent)] bg-[var(--color-bg)] px-6 py-4 text-sm uppercase tracking-[0.14em] text-[var(--color-accent)]">
+            Drop to add
+          </div>
+        </div>
+      )}
+
       {/* Floating trigger */}
       <button
         ref={fabRef}

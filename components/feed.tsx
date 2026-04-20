@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Search, Sparkles, X } from "lucide-react";
+import { FilePlus, Search, Sparkles, Upload, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast, UndoToast } from "@/components/ui/toast";
@@ -14,7 +14,7 @@ import {
   type DropType,
 } from "@/lib/types";
 import { DropTile } from "./drop-tile";
-import { DropComposer } from "./drop-composer";
+import { DropComposer, type Stage } from "./drop-composer";
 
 type Filter = "ALL" | DropType | "PINNED";
 const FILTERS: { label: string; value: Filter }[] = [
@@ -44,6 +44,12 @@ export function Feed({
     initialDrops.length >= 50,
   );
   const [loadingMore, setLoadingMore] = React.useState(false);
+
+  /** Parent-owned "stage" the composer watches. Bump `seq` to open it. */
+  const [stage, setStage] = React.useState<Stage>({ seq: 0 });
+  const stageFile = React.useCallback((file: File) => {
+    setStage((prev) => ({ seq: prev.seq + 1, file }));
+  }, []);
 
   /** Pending-delete bookkeeping so a sendBeacon commit can fire when the tab
    *  is hidden before the undo window elapses. */
@@ -316,6 +322,9 @@ export function Feed({
           </div>
         </div>
 
+        {/* Quick-pick file button — reliable alternative to drag-drop */}
+        <PickFileButton onFile={stageFile} />
+
         {/* Filter chips */}
         <div className="flex flex-wrap items-center gap-2">
           {FILTERS.map((f) => (
@@ -346,7 +355,7 @@ export function Feed({
       </div>
 
       {ordered.length === 0 ? (
-        <EmptyState hasDrops={drops.length > 0} />
+        <EmptyState hasDrops={drops.length > 0} onFile={stageFile} />
       ) : (
         <>
           <div className="bento">
@@ -376,7 +385,7 @@ export function Feed({
         </>
       )}
 
-      <DropComposer onCreated={handleCreated} prefill={prefill} />
+      <DropComposer onCreated={handleCreated} prefill={prefill} stage={stage} />
     </section>
   );
 }
@@ -394,7 +403,15 @@ function prettyType(t: DropType): string {
   }
 }
 
-function EmptyState({ hasDrops }: { hasDrops: boolean }) {
+function EmptyState({
+  hasDrops,
+  onFile,
+}: {
+  hasDrops: boolean;
+  onFile: (file: File) => void;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = React.useState(false);
   const [isTouch, setIsTouch] = React.useState(false);
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -414,8 +431,39 @@ function EmptyState({ hasDrops }: { hasDrops: boolean }) {
       </div>
     );
   }
+
   return (
-    <div className="animate-fade-up rounded-[24px] border border-dashed border-[var(--color-border)] bg-[color-mix(in_oklch,var(--color-bg)_60%,var(--color-surface))] px-6 py-16 text-center sm:py-24">
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label="Drop a file here or click to pick one"
+      onClick={() => inputRef.current?.click()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          inputRef.current?.click();
+        }
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        const f = e.dataTransfer.files?.[0];
+        if (!f) return;
+        e.preventDefault();
+        setDragOver(false);
+        onFile(f);
+      }}
+      className={cn(
+        "animate-fade-up cursor-pointer rounded-[24px] border border-dashed bg-[color-mix(in_oklch,var(--color-bg)_60%,var(--color-surface))] px-6 py-16 text-center transition sm:py-24",
+        dragOver
+          ? "border-[var(--color-accent)] bg-[color-mix(in_oklch,var(--color-accent)_8%,var(--color-surface))]"
+          : "border-[var(--color-border)] hover:border-[var(--color-accent)]",
+      )}
+    >
       <div
         aria-hidden
         className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[var(--color-accent)] text-[var(--color-accent-ink)]"
@@ -427,23 +475,70 @@ function EmptyState({ hasDrops }: { hasDrops: boolean }) {
       </h2>
       {isTouch ? (
         <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-fg-mute)]">
-          Tap the{" "}
+          Tap anywhere here to pick a file from your phone — or use the{" "}
           <span className="mono rounded-full bg-[var(--color-accent)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-accent-ink)]">
             + New drop
           </span>{" "}
-          button to drop your first idea. It&apos;ll appear on every signed-in
-          device — instantly.
+          button for text or links.
         </p>
       ) : (
         <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-fg-mute)]">
-          Paste anything while this tab is focused, drag a file, or press{" "}
+          Drag a file here,{" "}
+          <span className="font-medium text-[var(--color-fg)]">click anywhere on this zone</span>{" "}
+          to pick one, paste with{" "}
+          <kbd className="mono rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 py-0.5 text-[11px]">
+            ⌘V
+          </kbd>
+          , or press{" "}
           <kbd className="mono rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 py-0.5 text-[11px]">
             N
-          </kbd>{" "}
-          to open the composer. It&apos;ll appear on every signed-in device —
-          instantly.
+          </kbd>
+          {" "}for text & links.
         </p>
       )}
+      <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] text-[var(--color-accent-ink)]">
+        <Upload className="h-3.5 w-3.5" />
+        Pick a file
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        className="sr-only"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+function PickFileButton({ onFile }: { onFile: (file: File) => void }) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="press inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-fg-mute)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+      >
+        <FilePlus className="h-3.5 w-3.5" />
+        Pick a file
+      </button>
+      <span className="mono hidden text-[11px] uppercase tracking-[0.14em] text-[var(--color-fg-mute)] sm:inline">
+        or drag files onto this page · ⌘V to paste
+      </span>
+      <input
+        ref={inputRef}
+        type="file"
+        className="sr-only"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }
