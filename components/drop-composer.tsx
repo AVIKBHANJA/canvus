@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import FocusTrap from "focus-trap-react";
 import {
   File as FileIcon,
   Image as ImageIcon,
@@ -210,6 +209,19 @@ export function DropComposer({
       window.setTimeout(() => textRef.current?.focus(), 50);
     }
   }, [open, tab]);
+
+  // Global Escape handler while dialog is open.
+  React.useEffect(() => {
+    if (!open) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeDialog();
+      }
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [open, closeDialog]);
 
   // Global drag-drop: works whether the composer is open or closed.
   // Dropping a file anywhere on the page opens the composer with that file.
@@ -476,12 +488,12 @@ export function DropComposer({
 
       {/* Dialog */}
       {open && (
-        <FocusTrap
-          focusTrapOptions={{
-            escapeDeactivates: true,
-            allowOutsideClick: true,
-            returnFocusOnDeactivate: true,
-            onDeactivate: () => closeDialog(),
+        <div
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              closeDialog();
+            }
           }}
         >
           <div
@@ -641,7 +653,7 @@ export function DropComposer({
               )}
             </div>
           </div>
-        </FocusTrap>
+        </div>
       )}
     </>
   );
