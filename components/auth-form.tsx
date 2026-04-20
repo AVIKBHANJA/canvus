@@ -32,14 +32,14 @@ export function AuthForm({ mode }: { mode: Mode }) {
     const supabase = createClient();
     try {
       if (mode === "signup") {
+        const siteUrl =
+          process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
+          (typeof window !== "undefined" ? window.location.origin : "");
         const { data, error } = await supabase.auth.signUp({
           email: email.trim().toLowerCase(),
           password,
           options: {
-            emailRedirectTo:
-              typeof window !== "undefined"
-                ? `${window.location.origin}/callback`
-                : undefined,
+            emailRedirectTo: siteUrl ? `${siteUrl}/callback` : undefined,
           },
         });
         if (error) throw new Error(error.message);
