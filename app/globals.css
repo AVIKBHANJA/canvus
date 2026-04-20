@@ -1,26 +1,244 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ----------------------------------------------------------------
+   Canvus design system
+   ---------------------------------------------------------------- */
+
+@theme {
+  /* Neutrals — warm-cool, never pure black/white */
+  --color-bg:          oklch(0.145 0.006 270);
+  --color-bg-elev:     oklch(0.185 0.007 270);
+  --color-surface:     oklch(0.215 0.008 270);
+  --color-surface-2:   oklch(0.255 0.009 270);
+  --color-border:      oklch(0.29 0.01 270);
+  --color-border-mute: oklch(0.235 0.009 270);
+
+  --color-fg:          oklch(0.965 0.006 90);
+  --color-fg-mute:     oklch(0.72 0.012 90);
+  --color-fg-dim:      oklch(0.68 0.012 90);
+
+  /* Electric chartreuse — the one vivid accent */
+  --color-accent:      oklch(0.86 0.21 128);
+  --color-accent-ink:  oklch(0.22 0.04 128);
+  --color-accent-dim:  oklch(0.86 0.21 128 / 0.12);
+  --color-accent-glow: oklch(0.86 0.21 128 / 0.35);
+
+  /* Type-category tints — used sparingly on badges only */
+  --color-link:     oklch(0.82 0.12 232);
+  --color-image:    oklch(0.80 0.15 30);
+  --color-file:     oklch(0.85 0.13 80);
+  --color-danger:   oklch(0.72 0.20 28);
+
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 9999px;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Light-mode override (system preference) */
+@media (prefers-color-scheme: light) {
+  @theme {
+    --color-bg:          oklch(0.985 0.004 90);
+    --color-bg-elev:     oklch(0.97 0.005 90);
+    --color-surface:     oklch(0.955 0.005 90);
+    --color-surface-2:   oklch(0.935 0.006 90);
+    --color-border:      oklch(0.88 0.008 90);
+    --color-border-mute: oklch(0.92 0.006 90);
+    --color-fg:          oklch(0.22 0.01 270);
+    --color-fg-mute:     oklch(0.44 0.012 270);
+    --color-fg-dim:      oklch(0.58 0.012 270);
+    --color-accent:      oklch(0.74 0.20 128);
+    --color-accent-ink:  oklch(0.22 0.04 128);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ----------------------------------------------------------------
+   Base
+   ---------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  color-scheme: dark light;
+  -webkit-text-size-adjust: 100%;
 }
+
+html, body { height: 100%; }
+
+body {
+  background:
+    radial-gradient(1100px 600px at 110% -10%, oklch(0.86 0.21 128 / 0.045), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, oklch(0.65 0.12 232 / 0.035), transparent 60%),
+    var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv02", "cv03", "cv04";
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+/* Subtle grain overlay — the "designer's tool" texture */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  z-index: 1;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-fg-dim); background-clip: padding-box; }
+
+/* Focus ring — accent, never blue */
+:where(a, button, input, textarea, select, [role="button"]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ----------------------------------------------------------------
+   Utility primitives
+   ---------------------------------------------------------------- */
+
+.glass {
+  background: color-mix(in oklch, var(--color-bg-elev) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--color-border);
+}
+
+.card {
+  background: var(--color-bg-elev);
+  border: 1px solid var(--color-border-mute);
+  border-radius: var(--radius-lg);
+}
+
+.ring-accent {
+  box-shadow:
+    inset 0 0 0 1px var(--color-accent),
+    0 0 0 4px var(--color-accent-dim);
+}
+
+/* ----------------------------------------------------------------
+   Motion
+   ---------------------------------------------------------------- */
+
+@keyframes canvus-drop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.985);
+    box-shadow: 0 0 0 0 var(--color-accent-glow);
+  }
+  60% {
+    box-shadow: 0 0 0 6px var(--color-accent-glow);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.animate-drop-in {
+  animation: canvus-drop-in 440ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes canvus-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: canvus-fade-up 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes canvus-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+.animate-pulse-dot {
+  animation: canvus-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes canvus-shimmer {
+  0%   { background-position: -180% 0; }
+  100% { background-position: 180% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklch, var(--color-fg) 8%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: canvus-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Press feedback — use on action buttons inside a tile */
+.press {
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+              background-color 160ms ease;
+}
+.press:active { transform: scale(0.96); }
+
+/* Tile hover */
+.tile {
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms ease,
+    background 220ms ease;
+}
+.tile:hover {
+  border-color: color-mix(in oklch, var(--color-border) 60%, var(--color-fg-mute) 40%);
+  background: var(--color-surface);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Masonry / bento tweaks */
+.bento {
+  column-gap: 16px;
+}
+.bento > * {
+  break-inside: avoid;
+  margin-bottom: 16px;
+}
+@media (min-width: 640px)  { .bento { column-count: 2; } }
+@media (min-width: 1024px) { .bento { column-count: 3; } }
+@media (min-width: 1536px) { .bento { column-count: 4; } }
+
+/* Typographic niceties */
+.mono { font-family: var(--font-mono); }
+.tnum { font-variant-numeric: tabular-nums; }
