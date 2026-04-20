@@ -10,7 +10,7 @@ export default async function SignupPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (user) redirect("/");
+  if (user) redirect("/app");
 
   return (
     <section className="w-full max-w-[380px] animate-fade-up">

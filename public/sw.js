@@ -10,7 +10,7 @@
 const swUrl = new URL(self.location.href);
 const BUILD_ID = swUrl.searchParams.get("v") || "dev";
 const CACHE = `canvus-shell-${BUILD_ID}`;
-const SHELL = ["/login", "/signup", "/manifest.webmanifest"];
+const SHELL = ["/", "/login", "/signup", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -39,7 +39,7 @@ self.addEventListener("fetch", (event) => {
   // Never intercept API, auth, or cross-origin storage reads.
   if (url.pathname.startsWith("/api")) return;
   if (url.pathname.startsWith("/auth")) return;
-  if (url.pathname.startsWith("/share")) return;
+  if (url.pathname.startsWith("/app/share")) return;
   if (url.origin !== self.location.origin) return;
 
   // Network-first for navigations, cache fallback for login/signup shell.
@@ -47,13 +47,17 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((r) => {
-          if (url.pathname === "/login" || url.pathname === "/signup") {
+          if (
+            url.pathname === "/" ||
+            url.pathname === "/login" ||
+            url.pathname === "/signup"
+          ) {
             const copy = r.clone();
             caches.open(CACHE).then((c) => c.put(req, copy).catch(() => {}));
           }
           return r;
         })
-        .catch(() => caches.match(req).then((r) => r || caches.match("/login"))),
+        .catch(() => caches.match(req).then((r) => r || caches.match("/"))),
     );
   }
 });

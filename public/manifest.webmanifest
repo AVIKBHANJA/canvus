@@ -2,7 +2,7 @@
   "name": "Canvus",
   "short_name": "Canvus",
   "description": "Your cloud clipboard — drop anywhere, land everywhere.",
-  "start_url": "/",
+  "start_url": "/app",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -30,7 +30,7 @@
     }
   ],
   "share_target": {
-    "action": "/share",
+    "action": "/app/share",
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {

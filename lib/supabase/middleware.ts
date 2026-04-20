@@ -4,7 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 /**
  * Session refresher for Next.js proxy (formerly middleware).
  * - Refreshes the Supabase session cookie on every request
- * - Gates `/` and `/share` behind a signed-in user
+ * - `/` is the public landing page
+ * - `/app/*` is gated behind a signed-in user
+ * - Authed users on `/`, `/login`, or `/signup` are bounced to `/app`
  */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -34,19 +36,16 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  const isAuthRoute =
+  const isProtected = pathname === "/app" || pathname.startsWith("/app/");
+  const isAuthEntry =
     pathname === "/login" ||
-    pathname === "/signup" ||
-    pathname === "/callback";
-  const isPublicAsset =
-    pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico" ||
-    pathname === "/manifest.webmanifest" ||
-    pathname === "/sw.js" ||
-    pathname.startsWith("/icons/") ||
-    pathname.startsWith("/icon");
+    pathname === "/signup";
 
-  if (!user && !isAuthRoute && !isPublicAsset) {
+  if (user && (pathname === "/" || isAuthEntry)) {
+    return NextResponse.redirect(new URL("/app", request.url));
+  }
+
+  if (!user && isProtected) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);

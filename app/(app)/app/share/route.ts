@@ -28,7 +28,7 @@ const ALLOWED_MIMES = new Set<string>([
 ]);
 
 function redirectWithError(req: Request, message: string): NextResponse {
-  const url = new URL("/", req.url);
+  const url = new URL("/app", req.url);
   url.searchParams.set("shareError", message);
   return NextResponse.redirect(url);
 }
@@ -189,14 +189,14 @@ export async function POST(req: Request) {
     console.error("[share.POST]", e);
   }
 
-  return NextResponse.redirect(new URL("/", req.url));
+  return NextResponse.redirect(new URL("/app", req.url));
 }
 
 // Also accept GET for browsers that implement share_target as GET (older
 // Android Chrome). The URL params land on the composer via searchParams.
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const redirect = new URL("/", req.url);
+  const redirect = new URL("/app", req.url);
   const title = url.searchParams.get("title");
   const text = url.searchParams.get("text");
   const sharedUrl = url.searchParams.get("url");

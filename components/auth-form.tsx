@@ -15,7 +15,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const nextPath = (() => {
     const n = searchParams.get("next");
     // Only allow internal paths to prevent open-redirect.
-    return n && n.startsWith("/") && !n.startsWith("//") ? n : "/";
+    return n && n.startsWith("/") && !n.startsWith("//") ? n : "/app";
   })();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
