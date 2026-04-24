@@ -5,7 +5,18 @@
       "Bash(npx tsc *)",
       "Bash(rm -rf .next)",
       "Bash(npx next *)",
-      "Bash(taskkill //F //IM node.exe)"
+      "Bash(taskkill //F //IM node.exe)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__execute_sql",
+      "Bash(npx eslint *)",
+      "Bash(grep -v \"^\\\\s*$\")",
+      "Bash(npm install *)",
+      "Bash(npm run *)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "stitch",
+    "supabase"
+  ]
 }

@@ -6,6 +6,7 @@ import {
   Download,
   ExternalLink,
   File as FileIcon,
+  FolderInput,
   Image as ImageIcon,
   Link as LinkIcon,
   Pin,
@@ -18,7 +19,10 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { cn, formatBytes, relativeTime } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import type { Drop } from "@/lib/types";
+import type { Collection, Drop } from "@/lib/types";
+import { looksLikeMarkdown } from "@/lib/markdown-detect";
+import { MarkdownBody } from "./markdown-body";
+import { MoveToMenu } from "./move-to-menu";
 
 const TYPE_ICON = {
   TEXT: TypeIcon,
@@ -78,15 +82,21 @@ export function invalidateSignedUrl(path: string): void {
 
 function DropTileImpl({
   drop,
+  collections,
   onDelete,
   onPin,
   onSelectTag,
+  onMoveToCollection,
+  onSelectCollection,
   isNew,
 }: {
   drop: Drop;
+  collections: Collection[];
   onDelete: (id: string) => void;
   onPin: (id: string, pinned: boolean) => void;
   onSelectTag: (tag: string) => void;
+  onMoveToCollection: (id: string, collectionId: string | null) => void;
+  onSelectCollection: (id: string) => void;
   isNew?: boolean;
 }) {
   const Icon = TYPE_ICON[drop.type];
@@ -95,8 +105,13 @@ function DropTileImpl({
   const [focused, setFocused] = React.useState(false);
   const [hovered, setHovered] = React.useState(false);
   const [flash, setFlash] = React.useState(false);
+  const [moveMenuOpen, setMoveMenuOpen] = React.useState(false);
 
   const active = focused || hovered;
+  const collection = React.useMemo(
+    () => collections.find((c) => c.id === drop.collectionId) ?? null,
+    [collections, drop.collectionId],
+  );
 
   const triggerFlash = React.useCallback(() => {
     setFlash(true);
@@ -263,6 +278,25 @@ function DropTileImpl({
               <Download className="h-3.5 w-3.5" />
             </Button>
           )}
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Move to collection"
+              onClick={() => setMoveMenuOpen((v) => !v)}
+              title="Move to collection"
+            >
+              <FolderInput className="h-3.5 w-3.5" />
+            </Button>
+            {moveMenuOpen && (
+              <MoveToMenu
+                collections={collections}
+                currentId={drop.collectionId}
+                onPick={(id) => onMoveToCollection(drop.id, id)}
+                onClose={() => setMoveMenuOpen(false)}
+              />
+            )}
+          </div>
           <Button
             variant="ghost"
             size="icon"
@@ -300,6 +334,19 @@ function DropTileImpl({
 
       {/* Footer */}
       <footer className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        {collection && (
+          <button
+            onClick={() => onSelectCollection(collection.id)}
+            className="press mono inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-mute)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-fg-mute)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)]"
+          >
+            <span
+              aria-hidden
+              className="h-2 w-2 rounded-full"
+              style={{ background: `var(--canvus-color-${collection.color})` }}
+            />
+            {collection.name}
+          </button>
+        )}
         {drop.tags.map((t) => (
           <button
             key={t}
@@ -332,35 +379,104 @@ function DropTileImpl({
 export const DropTile = React.memo(DropTileImpl, (prev, next) => {
   return (
     prev.drop === next.drop &&
+    prev.collections === next.collections &&
     prev.isNew === next.isNew &&
     prev.onDelete === next.onDelete &&
     prev.onPin === next.onPin &&
-    prev.onSelectTag === next.onSelectTag
+    prev.onSelectTag === next.onSelectTag &&
+    prev.onMoveToCollection === next.onMoveToCollection &&
+    prev.onSelectCollection === next.onSelectCollection
   );
 });
 DropTile.displayName = "DropTile";
 
 function TextBody({ text, onCopy }: { text: string; onCopy: () => void }) {
+  const markdown = React.useMemo(() => looksLikeMarkdown(text), [text]);
+  const [rendered, setRendered] = React.useState(markdown);
   const isCode =
-    text.length < 2000 && /[{}();=<>]/.test(text) && text.includes("\n");
-  const preview = text.length > 900 ? text.slice(0, 900) + "…" : text;
+    !markdown &&
+    text.length < 2000 &&
+    /[{}();=<>]/.test(text) &&
+    text.includes("\n");
+  const preview = text.length > 3000 ? text.slice(0, 3000) + "…" : text;
+
+  // Filter copy-on-click when the user clicks a link, button, or code inside
+  // the rendered markdown — they're interacting with content, not copying.
+  const handleClick = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (
+      t &&
+      (t.closest("a") ||
+        t.closest("button") ||
+        t.closest("code") ||
+        t.closest("pre"))
+    ) {
+      return;
+    }
+    onCopy();
+  };
+
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={onCopy}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onCopy();
-        }
-      }}
       className={cn(
-        "cursor-copy whitespace-pre-wrap break-words rounded-[10px] border border-[var(--color-border-mute)] bg-[color-mix(in_oklch,var(--color-bg)_60%,var(--color-surface))] p-3 text-sm leading-relaxed text-[var(--color-fg)]",
-        isCode && "mono text-xs",
+        "group/text relative rounded-[10px] border border-[var(--color-border-mute)] bg-[color-mix(in_oklch,var(--color-bg)_60%,var(--color-surface))] p-3",
       )}
     >
-      {preview}
+      {markdown && (
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-0 overflow-hidden rounded-full border border-[var(--color-border-mute)] bg-[var(--color-bg)] p-0.5 opacity-0 transition-opacity group-hover/text:opacity-100 focus-within:opacity-100">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setRendered(true);
+            }}
+            className={cn(
+              "mono rounded-full px-2 py-0.5 text-[10.5px] uppercase tracking-[0.14em]",
+              rendered
+                ? "bg-[var(--color-accent)] text-[var(--color-accent-ink)]"
+                : "text-[var(--color-fg-mute)] hover:text-[var(--color-fg)]",
+            )}
+          >
+            md
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setRendered(false);
+            }}
+            className={cn(
+              "mono rounded-full px-2 py-0.5 text-[10.5px] uppercase tracking-[0.14em]",
+              !rendered
+                ? "bg-[var(--color-accent)] text-[var(--color-accent-ink)]"
+                : "text-[var(--color-fg-mute)] hover:text-[var(--color-fg)]",
+            )}
+          >
+            raw
+          </button>
+        </div>
+      )}
+      {markdown && rendered ? (
+        <div onClick={handleClick} className="cursor-copy">
+          <MarkdownBody text={preview} />
+        </div>
+      ) : (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onCopy}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onCopy();
+            }
+          }}
+          className={cn(
+            "cursor-copy whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--color-fg)]",
+            isCode && "mono text-xs",
+          )}
+        >
+          {preview}
+        </div>
+      )}
     </div>
   );
 }

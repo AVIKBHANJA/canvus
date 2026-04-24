@@ -1,6 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { Feed } from "@/components/feed";
-import { fromRow, type DropRow } from "@/lib/types";
+import {
+  collectionFromRow,
+  fromRow,
+  type CollectionRow,
+  type DropRow,
+} from "@/lib/types";
 import { isUrl } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +27,7 @@ export default async function FeedPage({
 
   const sp = await searchParams;
 
-  // Prefill the composer if the page was opened via a PWA share_target GET
-  // (some Android browsers implement it as GET) or a ?text=/?url= link.
-  let prefill:
-    | { text?: string; url?: string }
-    | undefined;
+  let prefill: { text?: string; url?: string } | undefined;
   if (sp.url) {
     prefill = { url: sp.url };
   } else {
@@ -36,21 +37,41 @@ export default async function FeedPage({
     }
   }
 
-  // RLS restricts to current user — the filter is defense in depth.
-  const { data, error } = await supabase
-    .from("canvus_drops")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("pinned", { ascending: false })
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(50);
+  const [dropsRes, collectionsRes] = await Promise.all([
+    supabase
+      .from("canvus_drops")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("pinned", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(50),
+    supabase
+      .from("canvus_collections")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: false }),
+  ]);
 
-  if (error) {
-    console.error("[feed] fetch failed", error);
+  if (dropsRes.error) {
+    console.error("[feed] drops fetch failed", dropsRes.error);
+  }
+  if (collectionsRes.error) {
+    console.error("[feed] collections fetch failed", collectionsRes.error);
   }
 
-  const drops = ((data ?? []) as DropRow[]).map(fromRow);
+  const drops = ((dropsRes.data ?? []) as DropRow[]).map(fromRow);
+  const collections = ((collectionsRes.data ?? []) as CollectionRow[]).map(
+    collectionFromRow,
+  );
 
-  return <Feed userId={user.id} initialDrops={drops} prefill={prefill} />;
+  return (
+    <Feed
+      userId={user.id}
+      initialDrops={drops}
+      initialCollections={collections}
+      prefill={prefill}
+    />
+  );
 }

@@ -1,10 +1,22 @@
 export type DropType = "TEXT" | "LINK" | "IMAGE" | "FILE";
 
-/**
- * The Drop shape the UI consumes — camelCase.
- * Supabase returns snake_case from the `canvus_drops` table; we convert
- * at the boundary (see `fromRow` below) so the UI doesn't have to know.
- */
+export type CollectionColor =
+  | "chartreuse"
+  | "cyan"
+  | "amber"
+  | "rose"
+  | "violet"
+  | "slate";
+
+export const COLLECTION_COLORS: CollectionColor[] = [
+  "chartreuse",
+  "cyan",
+  "amber",
+  "rose",
+  "violet",
+  "slate",
+];
+
 export type Drop = {
   id: string;
   userId: string;
@@ -22,10 +34,11 @@ export type Drop = {
   tags: string[];
   deviceName: string | null;
   pinned: boolean;
+  collectionId: string | null;
   createdAt: string;
+  headline?: string;
 };
 
-/** Raw row shape from `public.canvus_drops` (snake_case). */
 export type DropRow = {
   id: string;
   user_id: string;
@@ -43,7 +56,9 @@ export type DropRow = {
   tags: string[] | null;
   device_name: string | null;
   pinned: boolean;
+  collection_id: string | null;
   created_at: string;
+  headline?: string;
 };
 
 export function fromRow(r: DropRow): Drop {
@@ -64,6 +79,83 @@ export function fromRow(r: DropRow): Drop {
     tags: r.tags ?? [],
     deviceName: r.device_name,
     pinned: r.pinned,
+    collectionId: r.collection_id ?? null,
     createdAt: r.created_at,
+    ...(r.headline ? { headline: r.headline } : {}),
+  };
+}
+
+export type Collection = {
+  id: string;
+  userId: string;
+  name: string;
+  color: CollectionColor;
+  icon: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CollectionRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  color: CollectionColor;
+  icon: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export function collectionFromRow(r: CollectionRow): Collection {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    color: r.color,
+    icon: r.icon,
+    sortOrder: r.sort_order,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export type Device = {
+  id: string;
+  userId: string;
+  deviceKey: string;
+  name: string;
+  ua: string | null;
+  lastActiveAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+  isCurrent?: boolean;
+};
+
+export type DeviceRow = {
+  id: string;
+  user_id: string;
+  device_key: string;
+  name: string;
+  ua: string | null;
+  last_active_at: string;
+  revoked_at: string | null;
+  created_at: string;
+};
+
+export function deviceFromRow(
+  r: DeviceRow,
+  currentDeviceKey?: string | null,
+): Device {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    deviceKey: r.device_key,
+    name: r.name,
+    ua: r.ua,
+    lastActiveAt: r.last_active_at,
+    revokedAt: r.revoked_at,
+    createdAt: r.created_at,
+    isCurrent: currentDeviceKey != null && r.device_key === currentDeviceKey,
   };
 }

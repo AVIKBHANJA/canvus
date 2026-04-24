@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { createClient } from "@/lib/supabase/client";
 
 export function AppHeader({
@@ -57,6 +59,20 @@ export function AppHeader({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent("canvus:open-palette"))
+            }
+            className="press mono hidden items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-[var(--color-fg-mute)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] md:inline-flex"
+            aria-label="Open command palette"
+          >
+            <Search className="h-3 w-3" />
+            <span>Search</span>
+            <kbd className="rounded border border-[var(--color-border-mute)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[10px] text-[var(--color-fg-dim)]">
+              ⌘K
+            </kbd>
+          </button>
           <span
             className="mono hidden items-center gap-1.5 rounded-full border border-[var(--color-border-mute)] bg-[var(--color-surface)] px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--color-fg-dim)] sm:inline-flex"
             title={online ? "Live sync active" : "Offline — reconnecting"}
@@ -76,6 +92,16 @@ export function AppHeader({
           >
             {name ?? email}
           </span>
+          <div className="hidden sm:block">
+            <ThemeToggle />
+          </div>
+          <Link
+            href="/app/settings/devices"
+            aria-label="Settings"
+            className="press inline-flex h-11 w-11 items-center justify-center rounded-[10px] text-[var(--color-fg-mute)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)] md:h-9 md:w-9"
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
           <Button
             variant="ghost"
             size="icon"

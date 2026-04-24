@@ -40,7 +40,7 @@
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* Light-mode override (system preference) */
+/* Light-mode override (system preference — unless user forces dark) */
 @media (prefers-color-scheme: light) {
   @theme {
     --color-bg:          oklch(0.985 0.004 90);
@@ -57,16 +57,67 @@
   }
 }
 
+/* User-forced light theme — wins over system dark preference. */
+html.theme-light {
+  --color-bg:          oklch(0.985 0.004 90);
+  --color-bg-elev:     oklch(0.97 0.005 90);
+  --color-surface:     oklch(0.955 0.005 90);
+  --color-surface-2:   oklch(0.935 0.006 90);
+  --color-border:      oklch(0.88 0.008 90);
+  --color-border-mute: oklch(0.92 0.006 90);
+  --color-fg:          oklch(0.22 0.01 270);
+  --color-fg-mute:     oklch(0.44 0.012 270);
+  --color-fg-dim:      oklch(0.58 0.012 270);
+  --color-accent:      oklch(0.74 0.20 128);
+  --color-accent-ink:  oklch(0.22 0.04 128);
+  --color-accent-dim:  oklch(0.74 0.20 128 / 0.14);
+  --color-accent-glow: oklch(0.74 0.20 128 / 0.3);
+}
+
+/* User-forced dark theme — wins over system light preference. */
+html.theme-dark {
+  --color-bg:          oklch(0.145 0.006 270);
+  --color-bg-elev:     oklch(0.185 0.007 270);
+  --color-surface:     oklch(0.215 0.008 270);
+  --color-surface-2:   oklch(0.255 0.009 270);
+  --color-border:      oklch(0.29 0.01 270);
+  --color-border-mute: oklch(0.235 0.009 270);
+  --color-fg:          oklch(0.965 0.006 90);
+  --color-fg-mute:     oklch(0.72 0.012 90);
+  --color-fg-dim:      oklch(0.68 0.012 90);
+  --color-accent:      oklch(0.86 0.21 128);
+  --color-accent-ink:  oklch(0.22 0.04 128);
+  --color-accent-dim:  oklch(0.86 0.21 128 / 0.12);
+  --color-accent-glow: oklch(0.86 0.21 128 / 0.35);
+}
+
 /* ----------------------------------------------------------------
    Base
    ---------------------------------------------------------------- */
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* ----------------------------------------------------------------
+   Collection color swatches — kept at :root so Tailwind v4 @theme
+   doesn't strip them (non-standard prefix).
+   ---------------------------------------------------------------- */
+:root {
+  --canvus-color-chartreuse: oklch(0.86 0.21 128);
+  --canvus-color-cyan:       oklch(0.80 0.13 220);
+  --canvus-color-amber:      oklch(0.84 0.16 70);
+  --canvus-color-rose:       oklch(0.78 0.17 12);
+  --canvus-color-violet:     oklch(0.78 0.16 290);
+  --canvus-color-slate:      oklch(0.70 0.02 250);
+}
+
 html {
   color-scheme: dark light;
   -webkit-text-size-adjust: 100%;
 }
+
+/* User-forced theme — overrides system preference. */
+html.theme-dark { color-scheme: dark; }
+html.theme-light { color-scheme: light; }
 
 html, body { height: 100%; }
 
@@ -381,6 +432,94 @@ body::before {
 .reveal-3 { animation-delay: 240ms; }
 .reveal-4 { animation-delay: 320ms; }
 .reveal-5 { animation-delay: 400ms; }
+
+/* ----------------------------------------------------------------
+   Markdown prose (inside drop tiles)
+   ---------------------------------------------------------------- */
+
+.canvus-prose {
+  color: var(--color-fg);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.canvus-prose > *:first-child { margin-top: 0; }
+.canvus-prose > *:last-child  { margin-bottom: 0; }
+.canvus-prose h1,
+.canvus-prose h2,
+.canvus-prose h3,
+.canvus-prose h4 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 1.1em 0 0.45em;
+  color: var(--color-fg);
+}
+.canvus-prose h1 { font-size: 1.35em; }
+.canvus-prose h2 { font-size: 1.15em; }
+.canvus-prose h3 { font-size: 1.05em; }
+.canvus-prose h4 { font-size: 1.00em; color: var(--color-fg-mute); }
+.canvus-prose p  { margin: 0.45em 0; }
+.canvus-prose ul,
+.canvus-prose ol {
+  margin: 0.45em 0;
+  padding-left: 1.4em;
+}
+.canvus-prose li { margin: 0.15em 0; }
+.canvus-prose ul { list-style: disc; }
+.canvus-prose ol { list-style: decimal; }
+.canvus-prose blockquote {
+  margin: 0.6em 0;
+  padding: 0.2em 0.9em;
+  border-left: 2px solid color-mix(in oklch, var(--color-accent) 60%, transparent);
+  color: var(--color-fg-mute);
+  background: color-mix(in oklch, var(--color-accent) 5%, transparent);
+  border-radius: 0 8px 8px 0;
+}
+.canvus-prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-border-mute);
+  margin: 1em 0;
+}
+.canvus-prose table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  width: 100%;
+  font-size: 13px;
+}
+.canvus-prose th,
+.canvus-prose td {
+  border: 1px solid var(--color-border-mute);
+  padding: 6px 10px;
+  text-align: left;
+}
+.canvus-prose th {
+  background: var(--color-surface);
+  color: var(--color-fg);
+  font-weight: 600;
+}
+.canvus-prose .shiki,
+.canvus-prose pre.shiki,
+.markdown-code pre.shiki {
+  margin: 0.5em 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border-mute);
+  background: var(--color-surface-2) !important;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+}
+
+/* Search-headline highlight */
+.canvus-headline mark {
+  background: color-mix(in oklch, var(--color-accent) 28%, transparent);
+  color: var(--color-fg);
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+/* cmdk base overrides */
+[cmdk-item] { transition: background-color 120ms ease; }
 
 /* Word rotator — a fixed-width slot that cycles through 4 words.
    Each span is visible for 25% of the cycle, cleanly phased. */

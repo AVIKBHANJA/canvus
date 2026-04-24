@@ -6,13 +6,16 @@ import { fromRow, type DropRow } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const patchSchema = z.object({
-  pinned: z.boolean().optional(),
-  tags: z
-    .array(z.string().trim().regex(/^[\w\- ]{1,32}$/))
-    .max(12)
-    .optional(),
-});
+const patchSchema = z
+  .object({
+    pinned: z.boolean().optional(),
+    tags: z
+      .array(z.string().trim().regex(/^[\w\- ]{1,32}$/))
+      .max(12)
+      .optional(),
+    collection_id: z.string().uuid().nullable().optional(),
+  })
+  .refine((d) => Object.keys(d).length > 0, { message: "empty patch" });
 
 export async function PATCH(
   req: Request,
@@ -40,7 +43,16 @@ export async function PATCH(
   if (!parsed.success)
     return NextResponse.json({ error: "Validation failed" }, { status: 400 });
 
-  // RLS ensures the row is owned by `user`; .eq user_id is defense in depth.
+  if (parsed.data.collection_id) {
+    const { count } = await supabase
+      .from("canvus_collections")
+      .select("id", { count: "exact", head: true })
+      .eq("id", parsed.data.collection_id)
+      .eq("user_id", user.id);
+    if ((count ?? 0) === 0)
+      return NextResponse.json({ error: "Invalid collection" }, { status: 400 });
+  }
+
   const { data, error } = await supabase
     .from("canvus_drops")
     .update(parsed.data)

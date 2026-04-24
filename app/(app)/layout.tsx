@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Toaster } from "@/components/ui/toast";
 import { AppHeader } from "@/components/app-header";
+import { OfflineFlusher } from "@/components/offline-flusher";
 
 export default async function AppLayout({
   children,
@@ -25,6 +26,7 @@ export default async function AppLayout({
         <AppHeader email={user.email ?? ""} name={displayName} />
         <main className="flex-1">{children}</main>
       </div>
+      <OfflineFlusher />
       <Toaster />
       <ServiceWorkerMount />
     </>

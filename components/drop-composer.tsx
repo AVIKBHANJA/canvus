@@ -15,7 +15,8 @@ import { Input, Textarea } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { cn, isUrl } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import type { Drop, DropType } from "@/lib/types";
+import type { Collection, Drop, DropType } from "@/lib/types";
+import { enqueueDrop } from "@/lib/offline-queue";
 
 type Tab = "text" | "link" | "image" | "file";
 
@@ -89,10 +90,14 @@ export function DropComposer({
   onCreated,
   prefill,
   stage,
+  collections = [],
+  defaultCollectionId = null,
 }: {
   onCreated: (d: Drop) => void;
   prefill?: { text?: string; url?: string; file?: File };
   stage?: Stage;
+  collections?: Collection[];
+  defaultCollectionId?: string | null;
 }) {
   const [open, setOpen] = React.useState(false);
   const [tab, setTab] = React.useState<Tab>("text");
@@ -100,8 +105,16 @@ export function DropComposer({
   const [url, setUrl] = React.useState("");
   const [file, setFile] = React.useState<File | null>(null);
   const [tags, setTags] = React.useState("");
+  const [collectionId, setCollectionId] = React.useState<string | null>(
+    defaultCollectionId,
+  );
   const [busy, setBusy] = React.useState(false);
   const [dragging, setDragging] = React.useState(false);
+
+  // Keep default in sync when the feed filter changes.
+  React.useEffect(() => {
+    if (!open) setCollectionId(defaultCollectionId);
+  }, [defaultCollectionId, open]);
   const textRef = React.useRef<HTMLTextAreaElement>(null);
   const fabRef = React.useRef<HTMLButtonElement>(null);
 
@@ -308,6 +321,7 @@ export function DropComposer({
     setUrl("");
     setFile(null);
     setTags("");
+    setCollectionId(defaultCollectionId);
   }
 
   function parseTags(): string[] {
@@ -339,8 +353,29 @@ export function DropComposer({
 
         const body =
           tab === "text"
-            ? { type: "TEXT", content: text, tags: parsedTags }
-            : { type: "LINK", url: url.trim(), tags: parsedTags };
+            ? {
+                type: "TEXT",
+                content: text,
+                tags: parsedTags,
+                collection_id: collectionId,
+              }
+            : {
+                type: "LINK",
+                url: url.trim(),
+                tags: parsedTags,
+                collection_id: collectionId,
+              };
+
+        // If we're offline, queue the drop locally and let the flusher
+        // retry on reconnect. File/image drops skip this path because they
+        // need a Storage upload round-trip.
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          await enqueueDrop("text-link", body);
+          toast("Saved offline — will sync when you're back");
+          reset();
+          closeDialog();
+          return;
+        }
 
         const res = await fetch("/api/drops", {
           method: "POST",
@@ -348,6 +383,15 @@ export function DropComposer({
           body: JSON.stringify(body),
         });
         if (!res.ok) {
+          // Network-level errors can surface as non-OK. If we genuinely can't
+          // reach the server (treat 5xx + no-network generically), queue.
+          if (res.status === 0 || res.status >= 500) {
+            await enqueueDrop("text-link", body);
+            toast("Server hiccup — queued for retry");
+            reset();
+            closeDialog();
+            return;
+          }
           const j = await res.json().catch(() => ({}));
           toast(j.error || "Couldn't create drop");
           return;
@@ -427,6 +471,7 @@ export function DropComposer({
             file_size: file.size,
             thumbnail,
             tags: parsedTags,
+            collection_id: collectionId,
           }),
         });
         if (!res.ok) {
@@ -445,6 +490,34 @@ export function DropComposer({
       toast("Drop saved");
     } catch (e) {
       console.error(e);
+      // Last-ditch: if it's a text/link drop and we crashed on the fetch,
+      // queue whatever body we had.
+      if (tab === "text" || tab === "link") {
+        try {
+          const parsedTags = parseTags();
+          const body =
+            tab === "text"
+              ? {
+                  type: "TEXT",
+                  content: text,
+                  tags: parsedTags,
+                  collection_id: collectionId,
+                }
+              : {
+                  type: "LINK",
+                  url: url.trim(),
+                  tags: parsedTags,
+                  collection_id: collectionId,
+                };
+          await enqueueDrop("text-link", body);
+          toast("Saved offline — will sync when you're back");
+          reset();
+          closeDialog();
+          return;
+        } catch {
+          /* fall through to the generic toast */
+        }
+      }
       toast("Network error");
     } finally {
       setBusy(false);
@@ -609,6 +682,40 @@ export function DropComposer({
                     className="mt-1.5"
                   />
                 </div>
+
+                {collections.length > 0 && (
+                  <div className="mt-4">
+                    <label
+                      htmlFor="composer-collection"
+                      className="mono text-[12px] uppercase tracking-[0.14em] text-[var(--color-fg-mute)]"
+                    >
+                      Collection
+                    </label>
+                    <div className="relative mt-1.5">
+                      <select
+                        id="composer-collection"
+                        value={collectionId ?? ""}
+                        onChange={(e) =>
+                          setCollectionId(e.target.value || null)
+                        }
+                        className="h-10 w-full appearance-none rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 pr-8 text-sm text-[var(--color-fg)] outline-none focus:border-[var(--color-accent)]"
+                      >
+                        <option value="">None</option>
+                        {collections.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-fg-dim)]"
+                      >
+                        ▾
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between gap-2 border-t border-[var(--color-border-mute)] bg-[color-mix(in_oklch,var(--color-bg)_40%,var(--color-bg-elev))] px-4 py-3">

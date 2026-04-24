@@ -39,6 +39,7 @@ const textLinkSchema = z
     content: z.string().trim().min(1).max(50_000).optional(),
     url: z.string().url().optional(),
     tags: tagSchema.optional(),
+    collection_id: z.string().uuid().nullable().optional(),
   })
   .refine(
     (d) =>
@@ -74,7 +75,22 @@ function fileDropSchema(userId: string, supabaseHost: string) {
       .nullable()
       .optional(),
     tags: tagSchema.optional(),
+    collection_id: z.string().uuid().nullable().optional(),
   });
+}
+
+async function validateCollectionOwnership(
+  supabase: SupabaseLike,
+  userId: string,
+  collectionId: string | null | undefined,
+): Promise<boolean> {
+  if (!collectionId) return true;
+  const { count } = await supabase
+    .from("canvus_collections")
+    .select("id", { count: "exact", head: true })
+    .eq("id", collectionId)
+    .eq("user_id", userId);
+  return (count ?? 0) > 0;
 }
 
 /* ------------------------------------------------------------------ *
@@ -130,6 +146,12 @@ export async function POST(req: Request) {
         );
       }
       const d = parsed.data;
+      if (!(await validateCollectionOwnership(supabase, user.id, d.collection_id))) {
+        return NextResponse.json(
+          { error: "Invalid collection" },
+          { status: 400 },
+        );
+      }
       const { data: row, error } = await supabase
         .from("canvus_drops")
         .insert({
@@ -142,6 +164,7 @@ export async function POST(req: Request) {
           thumbnail: d.thumbnail ?? null,
           tags: d.tags ?? [],
           device_name: deviceName,
+          collection_id: d.collection_id ?? null,
         })
         .select("*")
         .single();
@@ -178,6 +201,13 @@ async function createTextOrLink(
   data: z.infer<typeof textLinkSchema>,
 ) {
   const tags = data.tags ?? [];
+  if (!(await validateCollectionOwnership(supabase, userId, data.collection_id))) {
+    return NextResponse.json(
+      { error: "Invalid collection" },
+      { status: 400 },
+    );
+  }
+  const collectionId = data.collection_id ?? null;
 
   if (data.type === "TEXT") {
     const content = data.content!.trim();
@@ -196,6 +226,7 @@ async function createTextOrLink(
           og_image: og.image,
           tags,
           device_name: deviceName,
+          collection_id: collectionId,
         })
         .select("*")
         .single();
@@ -214,6 +245,7 @@ async function createTextOrLink(
         content,
         tags,
         device_name: deviceName,
+        collection_id: collectionId,
       })
       .select("*")
       .single();
@@ -239,6 +271,7 @@ async function createTextOrLink(
       og_image: og.image,
       tags,
       device_name: deviceName,
+      collection_id: collectionId,
     })
     .select("*")
     .single();
@@ -259,6 +292,7 @@ const pageSchema = z.object({
   before_created: z.string().datetime().optional(),
   before_id: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  collection_id: z.string().uuid().optional(),
 });
 
 export async function GET(req: Request) {
@@ -276,6 +310,7 @@ export async function GET(req: Request) {
     before_created: sp.get("before_created") ?? undefined,
     before_id: sp.get("before_id") ?? undefined,
     limit: sp.get("limit") ?? undefined,
+    collection_id: sp.get("collection_id") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "Validation failed" }, { status: 400 });
@@ -289,6 +324,10 @@ export async function GET(req: Request) {
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(parsed.data.limit);
+
+  if (parsed.data.collection_id) {
+    q = q.eq("collection_id", parsed.data.collection_id);
+  }
 
   // Keyset: rows strictly "after" (older than) the cursor under the
   // compound order (pinned desc, created_at desc, id desc).

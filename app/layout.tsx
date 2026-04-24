@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { THEME_BOOT_SCRIPT } from "@/components/theme-toggle";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -52,7 +53,14 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
+        />
+      </head>
       <body className="relative z-0 min-h-dvh">{children}</body>
     </html>
   );

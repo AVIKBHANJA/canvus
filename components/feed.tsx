@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FilePlus, Search, Sparkles, Upload, X } from "lucide-react";
+import { FilePlus, PanelLeft, Search, Sparkles, Upload, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast, UndoToast } from "@/components/ui/toast";
@@ -9,50 +9,48 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import {
   fromRow,
+  type Collection,
   type Drop,
   type DropRow,
-  type DropType,
 } from "@/lib/types";
 import { DropTile } from "./drop-tile";
 import { DropComposer, type Stage } from "./drop-composer";
-
-type Filter = "ALL" | DropType | "PINNED";
-const FILTERS: { label: string; value: Filter }[] = [
-  { label: "All", value: "ALL" },
-  { label: "Text", value: "TEXT" },
-  { label: "Links", value: "LINK" },
-  { label: "Images", value: "IMAGE" },
-  { label: "Files", value: "FILE" },
-  { label: "Pinned", value: "PINNED" },
-];
+import { CollectionsRail, type FeedFilter } from "./collections-rail";
+import { CommandPalette } from "./command-palette";
+import { RegisterCurrentDevice } from "./register-current-device";
 
 export function Feed({
   userId,
   initialDrops,
+  initialCollections,
   prefill,
 }: {
   userId: string;
   initialDrops: Drop[];
+  initialCollections: Collection[];
   prefill?: { text?: string; url?: string };
 }) {
   const [drops, setDrops] = React.useState<Drop[]>(initialDrops);
+  const [collections, setCollections] = React.useState<Collection[]>(
+    initialCollections,
+  );
   const [newIds, setNewIds] = React.useState<Set<string>>(new Set());
   const [q, setQ] = React.useState("");
-  const [filter, setFilter] = React.useState<Filter>("ALL");
+  const [filter, setFilter] = React.useState<FeedFilter>({ kind: "all" });
   const [tagFilter, setTagFilter] = React.useState<string | null>(null);
-  const [hasMore, setHasMore] = React.useState(
-    initialDrops.length >= 50,
-  );
+  const [hasMore, setHasMore] = React.useState(initialDrops.length >= 50);
   const [loadingMore, setLoadingMore] = React.useState(false);
+  const [railOpen, setRailOpen] = React.useState(false);
 
   /** Parent-owned "stage" the composer watches. Bump `seq` to open it. */
   const [stage, setStage] = React.useState<Stage>({ seq: 0 });
   const stageFile = React.useCallback((file: File) => {
     setStage((prev) => ({ seq: prev.seq + 1, file }));
   }, []);
+  const openComposer = React.useCallback(() => {
+    setStage((prev) => ({ seq: prev.seq + 1 }));
+  }, []);
 
-  /** Pending-delete bookkeeping so a sendBeacon commit can fire when the tab
-   *  is hidden before the undo window elapses. */
   const pendingDeletesRef = React.useRef<Set<string>>(new Set());
 
   const markNew = React.useCallback((id: string) => {
@@ -66,9 +64,7 @@ export function Feed({
     }, 1200);
   }, []);
 
-  // Supabase Realtime subscription: INSERT / UPDATE / DELETE on canvus_drops.
-  // Also refreshes the realtime auth token on auth state changes so the
-  // channel doesn't silently stop receiving events when the JWT rotates.
+  // Realtime — drops
   React.useEffect(() => {
     const supabase = createClient();
     const channel = supabase
@@ -82,8 +78,7 @@ export function Feed({
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          const row = payload.new as DropRow;
-          const drop = fromRow(row);
+          const drop = fromRow(payload.new as DropRow);
           setDrops((prev) => {
             if (prev.some((d) => d.id === drop.id)) return prev;
             return [drop, ...prev];
@@ -100,8 +95,7 @@ export function Feed({
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          const row = payload.new as DropRow;
-          const drop = fromRow(row);
+          const drop = fromRow(payload.new as DropRow);
           setDrops((prev) =>
             prev.map((d) => (d.id === drop.id ? drop : d)),
           );
@@ -126,7 +120,6 @@ export function Feed({
     const {
       data: { subscription: authSub },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Keep the realtime socket's JWT in sync with the current session.
       supabase.realtime.setAuth(session?.access_token ?? null);
     });
 
@@ -136,8 +129,26 @@ export function Feed({
     };
   }, [userId, markNew]);
 
-  // If the tab becomes hidden while deletes are pending, flush them via
-  // sendBeacon so the server commits the DELETE even if the tab is closed.
+  // Refresh collections on mount (in case SSR data was stale) — realtime is in the rail.
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/collections");
+        if (!res.ok) return;
+        const { collections: fresh } = (await res.json()) as {
+          collections: Collection[];
+        };
+        if (!cancelled) setCollections(fresh);
+      } catch {
+        /* no-op */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   React.useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== "hidden") return;
@@ -174,8 +185,6 @@ export function Feed({
       const snapshot = drops;
       const target = drops.find((d) => d.id === id);
       if (!target) return;
-
-      // Optimistic removal, with undo toast.
       setDrops((prev) => prev.filter((d) => d.id !== id));
       pendingDeletesRef.current.add(id);
 
@@ -220,6 +229,25 @@ export function Feed({
     [],
   );
 
+  const handleMoveToCollection = React.useCallback(
+    async (id: string, collectionId: string | null) => {
+      const snapshot = drops;
+      setDrops((prev) =>
+        prev.map((d) => (d.id === id ? { ...d, collectionId } : d)),
+      );
+      const res = await fetch(`/api/drops/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ collection_id: collectionId }),
+      });
+      if (!res.ok) {
+        toast("Couldn't move drop");
+        setDrops(snapshot);
+      }
+    },
+    [drops],
+  );
+
   const loadOlder = React.useCallback(async () => {
     if (loadingMore || !hasMore || drops.length === 0) return;
     const last = drops[drops.length - 1];
@@ -255,12 +283,12 @@ export function Feed({
     }
   }, [drops, hasMore, loadingMore]);
 
-  // Client-side filter/search. Server returns all user's drops.
   const visible = React.useMemo(() => {
     const needle = q.trim().toLowerCase();
     return drops.filter((d) => {
-      if (filter === "PINNED" && !d.pinned) return false;
-      if (filter !== "ALL" && filter !== "PINNED" && d.type !== filter)
+      if (filter.kind === "pinned" && !d.pinned) return false;
+      if (filter.kind === "type" && d.type !== filter.type) return false;
+      if (filter.kind === "collection" && d.collectionId !== filter.id)
         return false;
       if (tagFilter && !d.tags.includes(tagFilter)) return false;
       if (!needle) return true;
@@ -288,109 +316,194 @@ export function Feed({
     });
   }, [visible]);
 
+  const activeFilterLabel = React.useMemo(() => {
+    if (filter.kind === "collection") {
+      const c = collections.find((x) => x.id === filter.id);
+      return c ? `in ${c.name}` : null;
+    }
+    if (filter.kind === "type") return filter.type.toLowerCase();
+    if (filter.kind === "pinned") return "pinned";
+    return null;
+  }, [filter, collections]);
+
   return (
-    <section className="mx-auto w-full max-w-[1600px] px-4 pb-36 pt-6 sm:px-6 sm:pt-10">
-      <div className="mb-6 flex flex-col gap-4">
-        {/* Search + counter */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-fg-dim)]"
-              aria-hidden
+    <>
+      <RegisterCurrentDevice />
+      <div className="flex min-h-[calc(100dvh-57px)]">
+        <div className="hidden lg:block">
+          <div className="sticky top-[57px] h-[calc(100dvh-57px)]">
+            <CollectionsRail
+              userId={userId}
+              drops={drops}
+              filter={filter}
+              onFilter={(f) => setFilter(f)}
+              collections={collections}
+              onCollectionsChange={setCollections}
             />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search drops…"
-              className="h-11 pl-9"
-              aria-label="Search drops"
-            />
-            {q && (
-              <button
-                aria-label="Clear search"
-                onClick={() => setQ("")}
-                className="press absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-[var(--color-fg-mute)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+          </div>
+        </div>
+        {railOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-[color-mix(in_oklch,var(--color-bg)_55%,black)] backdrop-blur-sm lg:hidden"
+            onClick={() => setRailOpen(false)}
+          >
+            <div
+              className="absolute inset-y-0 left-0 h-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <CollectionsRail
+                userId={userId}
+                drops={drops}
+                filter={filter}
+                onFilter={(f) => {
+                  setFilter(f);
+                  setRailOpen(false);
+                }}
+                collections={collections}
+                onCollectionsChange={setCollections}
+                onClose={() => setRailOpen(false)}
+              />
+            </div>
+          </div>
+        )}
+
+        <section className="min-w-0 flex-1 px-4 pb-36 pt-6 sm:px-6 sm:pt-10">
+          <div className="mx-auto w-full max-w-[1400px]">
+            <div className="mb-6 flex flex-col gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  onClick={() => setRailOpen(true)}
+                  aria-label="Open filters"
+                  className="press inline-flex h-10 w-10 items-center justify-center rounded-[12px] border border-[var(--color-border)] text-[var(--color-fg-mute)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] lg:hidden"
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </button>
+                <div className="relative flex-1">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-fg-dim)]"
+                    aria-hidden
+                  />
+                  <Input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Search drops…"
+                    className="h-11 pl-9 pr-20"
+                    aria-label="Search drops"
+                  />
+                  <div className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 sm:flex">
+                    <kbd className="mono rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[10.5px] text-[var(--color-fg-dim)]">
+                      ⌘K
+                    </kbd>
+                  </div>
+                  {q && (
+                    <button
+                      aria-label="Clear search"
+                      onClick={() => setQ("")}
+                      className="press absolute right-10 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full text-[var(--color-fg-mute)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)] sm:right-12"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="mono flex items-center gap-2 text-[12px] uppercase tracking-[0.14em] text-[var(--color-fg-mute)] tnum">
+                  <span>
+                    {ordered.length} / {drops.length} drops
+                  </span>
+                </div>
+              </div>
+
+              <PickFileButton onFile={stageFile} />
+
+              <div className="flex flex-wrap items-center gap-2">
+                {activeFilterLabel && (
+                  <span className="mono inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_oklch,var(--color-accent)_40%,var(--color-border))] bg-[color-mix(in_oklch,var(--color-accent)_10%,transparent)] px-3 py-1 text-[11px] uppercase tracking-[0.14em] text-[var(--color-fg)]">
+                    <span
+                      aria-hidden
+                      className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]"
+                    />
+                    {activeFilterLabel}
+                    <button
+                      onClick={() => setFilter({ kind: "all" })}
+                      className="press -mr-1 ml-0.5 rounded-full p-0.5 text-[var(--color-fg-dim)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
+                      aria-label="Clear filter"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+                {tagFilter && (
+                  <button
+                    onClick={() => setTagFilter(null)}
+                    className="press mono inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)] bg-[color-mix(in_oklch,var(--color-accent)_14%,transparent)] px-3 py-1 text-[12px] text-[var(--color-accent)]"
+                  >
+                    #{tagFilter}
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {ordered.length === 0 ? (
+              <EmptyState hasDrops={drops.length > 0} onFile={stageFile} />
+            ) : (
+              <>
+                <div className="bento">
+                  {ordered.map((d) => (
+                    <DropTile
+                      key={d.id}
+                      drop={d}
+                      collections={collections}
+                      onDelete={handleDelete}
+                      onPin={handlePin}
+                      onSelectTag={setTagFilter}
+                      onMoveToCollection={handleMoveToCollection}
+                      onSelectCollection={(id) =>
+                        setFilter({ kind: "collection", id })
+                      }
+                      isNew={newIds.has(d.id)}
+                    />
+                  ))}
+                </div>
+                {hasMore && (
+                  <div className="mt-8 flex justify-center">
+                    <Button
+                      variant="secondary"
+                      size="md"
+                      onClick={loadOlder}
+                      disabled={loadingMore}
+                    >
+                      {loadingMore ? "Loading…" : "Load older"}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
-          </div>
-          <div className="mono flex items-center gap-2 text-[12px] uppercase tracking-[0.14em] text-[var(--color-fg-mute)] tnum">
-            <span>
-              {ordered.length} / {drops.length} drops
-            </span>
-          </div>
-        </div>
 
-        {/* Quick-pick file button — reliable alternative to drag-drop */}
-        <PickFileButton onFile={stageFile} />
-
-        {/* Filter chips */}
-        <div className="flex flex-wrap items-center gap-2">
-          {FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setFilter(f.value)}
-              className={cn(
-                "press rounded-full border px-3 py-1 text-xs tracking-tight",
-                filter === f.value
-                  ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-ink)]"
-                  : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-mute)] hover:text-[var(--color-fg)]",
-              )}
-              aria-pressed={filter === f.value}
-            >
-              {f.label}
-            </button>
-          ))}
-          {tagFilter && (
-            <button
-              onClick={() => setTagFilter(null)}
-              className="press mono inline-flex items-center gap-1 rounded-full border border-[var(--color-accent)] bg-[color-mix(in_oklch,var(--color-accent)_14%,transparent)] px-3 py-1 text-[12px] text-[var(--color-accent)]"
-            >
-              #{tagFilter}
-              <X className="h-3 w-3" />
-            </button>
-          )}
-        </div>
+            <DropComposer
+              onCreated={handleCreated}
+              prefill={prefill}
+              stage={stage}
+              collections={collections}
+              defaultCollectionId={
+                filter.kind === "collection" ? filter.id : null
+              }
+            />
+          </div>
+        </section>
       </div>
 
-      {ordered.length === 0 ? (
-        <EmptyState hasDrops={drops.length > 0} onFile={stageFile} />
-      ) : (
-        <>
-          <div className="bento">
-            {ordered.map((d) => (
-              <DropTile
-                key={d.id}
-                drop={d}
-                onDelete={handleDelete}
-                onPin={handlePin}
-                onSelectTag={setTagFilter}
-                isNew={newIds.has(d.id)}
-              />
-            ))}
-          </div>
-          {hasMore && (
-            <div className="mt-8 flex justify-center">
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={loadOlder}
-                disabled={loadingMore}
-              >
-                {loadingMore ? "Loading…" : "Load older"}
-              </Button>
-            </div>
-          )}
-        </>
-      )}
-
-      <DropComposer onCreated={handleCreated} prefill={prefill} stage={stage} />
-    </section>
+      <CommandPalette
+        collections={collections}
+        onCollectionFilter={(id) =>
+          setFilter(id ? { kind: "collection", id } : { kind: "all" })
+        }
+        onNewDrop={openComposer}
+      />
+    </>
   );
 }
 
-function prettyType(t: DropType): string {
+function prettyType(t: Drop["type"]): string {
   switch (t) {
     case "TEXT":
       return "Text";
@@ -542,3 +655,4 @@ function PickFileButton({ onFile }: { onFile: (file: File) => void }) {
     </div>
   );
 }
+
